@@ -19,6 +19,8 @@ typedef Kernel::Vector_3 Vector_3;
 struct CrestPoint {
     Vector_3 point;
     int componentId;
+    Vector_3 Ti, To;
+
 };
 
 struct ComposanteConnectee {
@@ -35,7 +37,6 @@ struct CrestEdge {
 
 struct Spline {
     vector<CrestPoint> points;
-    Vector_3 Ti, To;
 };
 
 void affichage(void);
@@ -50,12 +51,12 @@ float t=.5 ;
 
 Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double continuité);
 vector<CrestPoint> read();
-void drawTCBSpline(vector<CrestPoint>& P, double tension, double continuite, double bias);
+void drawTCBSpline(Spline courbe, double tension, double continuite, double bias, Vector_3 color);
 Vector_3 calculate_To( Vector_3 Pi, Vector_3 Pi_plus_1,Vector_3 Pi_plus_2,double tension, double bias, double continuité);
 Vector_3 calculate_Ti(Vector_3 Pi_moins_1, Vector_3 Pi, Vector_3 Pi_plus_1,double tension, double bias, double continuité);
 
 vector<Spline> split_splines(const vector<CrestPoint>& P, int pointID);
-double calculate_norme(const CrestPoint& v);
+double calculate_norme(Vector_3 v);
 void similitude(Spline s1, Spline s2);
 
 
@@ -80,6 +81,9 @@ float cameraDistance=0.;
     float high_shininess = 100.0f;
     float mat_emission[] = {0.3f, 0.2f, 0.2f, 0.0f};
 
+Vector_3 red = {1, 0, 0};
+Vector_3 blue = {0, 0, 1};
+Vector_3 green = {0, 1, 0};
 
 
 
@@ -114,21 +118,43 @@ void initOpenGl()
 
 void similitude(Spline s1, Spline s2)
 {
-    // auto norme1 = calculate_norme(s1.To);
-    // auto norme2 = calculate_norme(s2.Ti); 
+    cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
+    cout <<"EVALUATION SIMILITUDE" << endl;
 
-    // auto rapportNorme = norme1 / norme2;
-    auto angle = approximate_angle(s1.To, s2.Ti);
+    auto size1 = s1.points.size(),
+         size2 = s2.points.size();
+
+
+    Vector_3 To = s1.points.at(size1 - 3).To,
+             Ti = s2.points.at(1).Ti;
+            
+    auto normeTi = calculate_norme(Ti);
+    auto normeTo = calculate_norme(To); 
+
+    // auto rapportNorme = normeTo / normeTi;
+
+    cout << "Dernier point de la spline 1 : " << s1.points.at(size1-3).point << endl;
+    cout << "\tTo = "<< To << " de norme " << normeTo << endl;
+
+    cout << "Premier point de la spline 2 : " << s2.points.at(1).point << endl;
+    cout << "\tTi = "<< Ti << " de norme " << normeTi << endl;
+
+    // cout << "\t rapport normeTo / normeTi = " << rapportNorme << endl;
+
+    auto angle = approximate_angle(To, Ti);
+    cout << "angle approx = " << round(angle) << endl;
 }
 
-double calculate_norme(const CrestPoint& v) {
-    return sqrt(v.point.squared_length());
+double calculate_norme(Vector_3 v) {
+    return sqrt(v.squared_length());
 }
 
 Vector_3 calculate_Ti(Vector_3 Pi_moins_1, Vector_3 Pi, Vector_3 Pi_plus_1,double tension, double bias, double continuité)
 {
     Vector_3 Ti = ((1 - tension) * (1 + bias) * (1 + continuité) * (Pi - Pi_moins_1) +
                        (1 - tension) * (1 - bias) * (1 - continuité) * (Pi_plus_1 - Pi)) / 2.0;
+        // cout << "TI = " << Ti << endl;
+
     return Ti;
 }
 
@@ -136,6 +162,7 @@ Vector_3 calculate_To( Vector_3 Pi, Vector_3 Pi_plus_1,Vector_3 Pi_plus_2,double
 {
     Vector_3 To = ((1 - tension) * (1 + bias) * (1 - continuité) * (Pi_plus_1 - Pi) +
                        (1 - tension) * (1 - bias) * (1 + continuité) * (Pi_plus_2 - Pi_plus_1)) / 2.0;
+    // cout << "TO = " << To << endl;
     return To;
 }
 
@@ -166,7 +193,7 @@ vector<Spline> split_splines(const vector<CrestPoint>& P, int pointID)
 
 Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double continuité) {
     Spline courbe;
-    for (size_t i = 1; i < P.size() - 1; ++i) {
+    for (size_t i = 1; i < P.size() - 2; ++i) {
         // Points P_{i-1}, P_i, P_{i+1}
         Vector_3 Pi_moins_1 = P[i - 1].point;
         Vector_3 Pi = P[i].point;
@@ -175,9 +202,6 @@ Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double con
         // Calculer les tangentes Ti et To
         Vector_3 Ti = calculate_Ti(Pi_moins_1, Pi, Pi_plus_1, tension, bias, continuité);
         Vector_3 To = calculate_To(Pi, Pi_plus_1,P[i + 2].point, tension, bias, continuité);
-        
-        courbe.Ti = Ti;
-        courbe.To = To;
 
         // Interpoler la courbe entre P_i et P_{i+1}
         for (double t = 0.0; t <= 1.0; t += 0.1) {
@@ -189,11 +213,23 @@ Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double con
                         (-2 * t * t * t + 3 * t * t) * Pi_plus_1 +
 
                         (t * t * t - t * t) * To;
-
-            // cout << "Interpolated Point: " << H.point << std::endl;
+            // cout << "Interpolated Point: " << H.point << endl;
             courbe.points.push_back(H);
         }
+
     }
+
+    auto sizec = courbe.points.size();
+    for(int i=1; i<sizec-2; i++)
+    {
+        // cout << "\t\t\t here !" << endl;
+        Vector_3 Ti = calculate_Ti(courbe.points.at(i-1).point, courbe.points.at(i).point, courbe.points.at(i+1).point, tension, bias, continuité);
+        Vector_3 To = calculate_To(courbe.points.at(i).point, courbe.points.at(i+1).point, courbe.points.at(i+2).point, tension, bias, continuité);
+    
+        courbe.points.at(i).Ti = Ti;
+        courbe.points.at(i).To = To;
+    }
+
     return courbe;
 }
 
@@ -251,15 +287,11 @@ vector<CrestPoint> read() {
     return crestPoints;
 }
 
-void drawTCBSpline(vector<CrestPoint>& P, double tension, double continuite, double bias) {
-    Spline courbe = TCB_Spline(P, tension, bias, continuite);
+void drawTCBSpline(Spline courbe, double tension, double continuite, double bias, Vector_3 color) {
 
     glBegin(GL_LINE_STRIP);
-    float red = static_cast<float>(rand()) / RAND_MAX;
-    float green = static_cast<float>(rand()) / RAND_MAX;
-    float blue = static_cast<float>(rand()) / RAND_MAX;
 
-    glColor3f(red, green, blue);
+    glColor3f(color.x(), color.y(), color.z());
 
     for (const CrestPoint& cp : courbe.points) {
         glVertex3f(cp.point.x(), cp.point.y(), cp.point.z());
@@ -277,46 +309,70 @@ void afficherTCBSpline()
     //         {Vector_3(1, 2, 1.5), 1}
     //     };
 
-    vector<CrestPoint> allPoints = {
-        {Vector_3(-1,-1,-1), 1},
-        {Vector_3(-0.5,-0.5,-0.5), 1},
-        {Vector_3(0,0,0), 1},
-        {Vector_3(0.5,0.5,0.5), 1},
-        {Vector_3(1,1,1), 1},
-        {Vector_3(1.5,1.5,1.5), 1}
-    };
+    // vector<CrestPoint> allPoints = {
+    //     {Vector_3(-1,-1,-1), 1},
+    //     {Vector_3(-0.5,-0.5,-0.5), 1},
+    //     {Vector_3(0,0,0), 1},
+    //     {Vector_3(0.5,0.5,0.5), 1},
+    //     {Vector_3(1,1,1), 1},
+    //     {Vector_3(1.5,1.5,1.5), 1}
+    // };
 
     double tension = 0.5;
     double continuity = 0.5;
     double bias = 0.5;
 
-    // vector<CrestPoint> allPoints = read();
+    vector<CrestPoint> allPoints = read();
     if (!allPoints.empty()) {
         CrestPoint dernierPoint = allPoints.back();
         int N = dernierPoint.componentId;
         for(int i=1; i<N+1; i++) {
             vector<CrestPoint> P;
             for(const auto& p:allPoints) {
-                if(p.componentId == 1) {
+                if(p.componentId == 7 && P.size() < 20) { //
                     P.push_back(p);
                 }
             }
-            auto numPoints = P.size();
-            vector<Spline> splines = split_splines(P, numPoints / 2);
+
+            Spline s = TCB_Spline(P, tension, bias, continuity);
+            // drawTCBSpline(s, tension, continuity, bias);
+            // cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl << endl << "SPLINE  "  << endl;
+            // for(const auto& cp : s.points) {
+            //     cout << "Point: " << cp.point << endl << " Ti = " << cp.Ti << " To = " << cp.To << endl;
+            // } 
+            auto numPoints = s.points.size();
+            vector<Spline> splines = split_splines(s.points, numPoints / 2);
+
+            // auto numPoints = P.size();
+            // vector<Spline> splines = split_splines(P, numPoints / 2);
 
             Spline s1 = splines[0];
             Spline s2 = splines[1];
             auto size1 = s1.points.size();
             auto size2 = s2.points.size();
 
-            for(const auto& cp : s1.points) {
-                cout << "Point: " << cp.point << endl;
-            } 
-            cout << "size1 = " << size1 << " and P[size-1] " << s1.points.at(size1-1).point;
+            // for(const auto& cp : s1.points) {
+            //     cout << "Point: " << cp.point << endl;
+            // } 
+            // // cout << "size1 = " << size1 << " and P[size-1] " << s1.points.at(size1-1).point << endl;
+            s1 = TCB_Spline(s1.points, tension, bias, continuity);
+            s2 = TCB_Spline(s2.points, tension, bias, continuity);
 
-            drawTCBSpline(s1.points, tension, continuity, bias);
-            drawTCBSpline(s2.points, tension, continuity, bias);
+            drawTCBSpline(s1, tension, continuity, bias, red);
+            drawTCBSpline(s2, tension, continuity, bias, blue);
 
+            cout << endl << "SPLINE 1 " << endl << "numPoints = " << s1.points.size() << endl;
+            
+            // for(const auto& cp : s1.points) {
+            //     cout << "Point: " << cp.point <<  endl << "Ti = " << cp.Ti << " To = " << cp.To << endl;
+            // } 
+            
+            cout << "SPLINE 2 " << endl << "numPoints = " << s1.points.size()  << endl;
+            // for(const auto& cp : s2.points) {
+            //     cout << "Point: "  << cp.point << endl << "Ti = " << cp.Ti << " To = " << cp.To << endl;
+            // } 
+
+            similitude(s1, s2);
         }
 
     } else {
@@ -390,7 +446,7 @@ void affichage(void)
 	glTranslatef(0,0,cameraDistance);
 	glRotatef(cameraAngleX,1.,0.,0.)	;
 	glRotatef(cameraAngleY,0.,1.,0.);
-	affiche_repere();
+	// affiche_repere();
 afficherTCBSpline();
         glPopMatrix();
   /* on force l'affichage du resultat */
