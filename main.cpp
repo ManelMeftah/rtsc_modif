@@ -20,7 +20,7 @@ struct CrestPoint {
     Vector_3 point;
     int componentId;
     Vector_3 Ti, To;
-
+    //id = line num - 4
 };
 
 struct ComposanteConnectee {
@@ -35,8 +35,15 @@ struct CrestEdge {
         triangleID;
 };
 
+struct TCBParameters {
+    double tension;
+    double continuity;
+    double bias;
+};
+
 struct Spline {
     vector<CrestPoint> points;
+    TCBParameters tcbParams[2];
 };
 
 void affichage(void);
@@ -116,6 +123,35 @@ void initOpenGl()
 
 }
 
+vector<Vector_3> CalculateSplineSegmentCoefficients(const Vector_3& P0, const Vector_3& P1,
+                                        double delta_k, const Vector_3& tangent_o, const Vector_3& tangent_i) {
+    // Coefficient A is equal to the control point Pk
+    Vector_3 A = P1;
+
+    // Coefficient B is equal to the product of the time difference Δk and the outgoing tangent Tk^o
+    Vector_3 B = tangent_o * delta_k;
+
+    // Coefficient C is equal to three times the difference between the next control point Pk+1
+    // and the current control point Pk, minus the product of the time difference Δk and the sum
+    // of twice the outgoing tangent Tk^o and the incoming tangent Tk+1^i
+    Vector_3 C = 3 * (P1 - P0) - delta_k * (2 * tangent_o + tangent_i);
+
+    // Coefficient D is equal to negative two times the difference between the next control point Pk+1
+    // and the current control point Pk, plus the product of the time difference Δk and the sum
+    // of the outgoing tangent Tk^o and the incoming tangent Tk+1^i
+    Vector_3 D = -2 * (P1 - P0) + delta_k * (tangent_o + tangent_i);
+    vector<Vector_3> coeffs;
+    coeffs.push_back(A);
+    coeffs.push_back(B);
+    coeffs.push_back(C);
+    coeffs.push_back(D);
+
+    return coeffs;
+
+}
+
+
+
 void similitude(Spline s1, Spline s2)
 {
     cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl;
@@ -131,6 +167,7 @@ void similitude(Spline s1, Spline s2)
     auto normeTi = calculate_norme(Ti);
     auto normeTo = calculate_norme(To); 
 
+    //
     // auto rapportNorme = normeTo / normeTi;
 
     cout << "Dernier point de la spline 1 : " << s1.points.at(size1-3).point << endl;
@@ -204,17 +241,69 @@ Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double con
         Vector_3 To = calculate_To(Pi, Pi_plus_1,P[i + 2].point, tension, bias, continuité);
 
         // Interpoler la courbe entre P_i et P_{i+1}
-        for (double t = 0.0; t <= 1.0; t += 0.1) {
-            CrestPoint H;
-            H.point = (2 * t * t * t - 3 * t * t + 1) * Pi+
+        // for (double t = 0.0; t <= 1.0; t += 0.1) {
+        //     CrestPoint H;
+        //     H.point = (2 * t * t * t - 3 * t * t + 1) * Pi+
 
-                        (t * t * t - 2 * t * t + t) * Ti +
+        //                 (t * t * t - 2 * t * t + t) * Ti +
 
-                        (-2 * t * t * t + 3 * t * t) * Pi_plus_1 +
+        //                 (-2 * t * t * t + 3 * t * t) * Pi_plus_1 +
 
-                        (t * t * t - t * t) * To;
-            // cout << "Interpolated Point: " << H.point << endl;
-            courbe.points.push_back(H);
+        //                 (t * t * t - t * t) * To;
+        //     // cout << "Interpolated Point: " << H.point << endl;
+        //     courbe.points.push_back(H);
+        // }
+
+        auto sizec = courbe.points.size();
+        for (int i = 1; i < sizec - 2; i++) {
+        // Coefficients pour le segment actuel
+            double delta_k = 1.0;  // Vous devez définir correctement le delta_k selon votre logique
+            
+            vector<Vector_3> coeffs = CalculateSplineSegmentCoefficients(P[i].point,P[i+1].point,
+                                                        delta_k, P[i+1].Ti, P[i+1].To);
+
+            // courbe.points.at(i).Ti = B;
+            // courbe.points.at(i).To = D;
+            Vector_3 A = coeffs.at(0),
+                     B = coeffs.at(1),
+                     C = coeffs.at(2),
+                     D = coeffs.at(3);
+
+            Vector_3 sk = ( P[i-1].point + 
+                            P[i].point +
+                            P[i+1].point) / 3.0;
+
+            for (double s = 0.0; s <= 1.0; s += 0.1) { 
+                double t_x = (s - sk.x()) / delta_k;
+                double t_y = (s - sk.y()) / delta_k;
+                double t_z = (s - sk.z()) / delta_k;
+
+                double t2_x = t_x * t_x;
+                double t2_y = t_y * t_y;
+                double t2_z = t_z * t_z;
+
+                double t3_x = t2_x * t_x;
+                double t3_y = t2_y * t_y;
+                double t3_z = t2_z * t_z;
+
+                
+                auto x  = A.x() + t_x * B.x() + t2_x * C.x() + t3_x * D.x();
+                auto y = A.y() + t_y * B.y() + t2_y * C.y() + t3_y * D.y();
+                auto z = A.z() + t_z * B.z() + t2_z * C.z() + t3_z * D.z();
+                Vector_3 Xk{x,y,z};
+
+                CrestPoint H;
+                H.point = Xk;
+                if(H.point.x() != 0 ) 
+                    if(H.point.y() != 0 ) 
+                        if(H.point.z() != 0 ) {
+                            cout << "Interpolated Point: " << H.point << endl;
+                            courbe.points.push_back(H);
+
+                        }
+
+            }
+
         }
 
     }
@@ -329,7 +418,7 @@ void afficherTCBSpline()
         for(int i=1; i<N+1; i++) {
             vector<CrestPoint> P;
             for(const auto& p:allPoints) {
-                if(p.componentId == 7 && P.size() < 20) { //
+                if(p.componentId == 2 && P.size() < 20) { //
                     P.push_back(p);
                 }
             }
@@ -341,38 +430,40 @@ void afficherTCBSpline()
             //     cout << "Point: " << cp.point << endl << " Ti = " << cp.Ti << " To = " << cp.To << endl;
             // } 
             auto numPoints = s.points.size();
-            vector<Spline> splines = split_splines(s.points, numPoints / 2);
+            drawTCBSpline(s, tension, continuity, bias, blue);
+
+            // vector<Spline> splines = split_splines(s.points, numPoints / 2);
 
             // auto numPoints = P.size();
             // vector<Spline> splines = split_splines(P, numPoints / 2);
 
-            Spline s1 = splines[0];
-            Spline s2 = splines[1];
-            auto size1 = s1.points.size();
-            auto size2 = s2.points.size();
+            // Spline s1 = splines[0];
+            // Spline s2 = splines[1];
+            // auto size1 = s1.points.size();
+            // auto size2 = s2.points.size();
 
             // for(const auto& cp : s1.points) {
             //     cout << "Point: " << cp.point << endl;
             // } 
             // // cout << "size1 = " << size1 << " and P[size-1] " << s1.points.at(size1-1).point << endl;
-            s1 = TCB_Spline(s1.points, tension, bias, continuity);
-            s2 = TCB_Spline(s2.points, tension, bias, continuity);
+            // s1 = TCB_Spline(s1.points, tension, bias, continuity);
+            // s2 = TCB_Spline(s2.points, tension, bias, continuity);
 
-            drawTCBSpline(s1, tension, continuity, bias, red);
-            drawTCBSpline(s2, tension, continuity, bias, blue);
+            // drawTCBSpline(s1, tension, continuity, bias, red);
+            // drawTCBSpline(s2, tension, continuity, bias, blue);
 
-            cout << endl << "SPLINE 1 " << endl << "numPoints = " << s1.points.size() << endl;
+            // cout << endl << "SPLINE 1 " << endl << "numPoints = " << s1.points.size() << endl;
             
             // for(const auto& cp : s1.points) {
             //     cout << "Point: " << cp.point <<  endl << "Ti = " << cp.Ti << " To = " << cp.To << endl;
             // } 
             
-            cout << "SPLINE 2 " << endl << "numPoints = " << s1.points.size()  << endl;
+            // cout << "SPLINE 2 " << endl << "numPoints = " << s1.points.size()  << endl;
             // for(const auto& cp : s2.points) {
             //     cout << "Point: "  << cp.point << endl << "Ti = " << cp.Ti << " To = " << cp.To << endl;
             // } 
 
-            similitude(s1, s2);
+            // similitude(s1, s2);
         }
 
     } else {
