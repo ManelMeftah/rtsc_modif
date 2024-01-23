@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdlib.h>
+#include <stack>
 
 #include <vector>
 
@@ -18,12 +19,14 @@ typedef Kernel::Vector_3 Vector_3;
 
 struct CrestPoint {
     Vector_3 point;
+    int id;
     int componentId;
     Vector_3 Ti, To;
     //id = line num - 4
 };
 
 struct ComposanteConnectee {
+    int id;
     double ridgeness;
     double sphericalness;
     double cyclideness;
@@ -66,6 +69,13 @@ vector<Spline> split_splines(const vector<CrestPoint>& P, int pointID);
 double calculate_norme(Vector_3 v);
 void similitude(Spline s1, Spline s2);
 
+vector<Vector_3> CalculateSplineSegmentCoefficients(const Vector_3& P0, const Vector_3& P1,
+                                        double delta_k, const Vector_3& tangent_o, const Vector_3& tangent_i);
+vector<pair<int, int>> findEndpoints(const vector<CrestPoint>& crestPoints, const vector<CrestEdge>& crestEdges);
+vector<CrestPoint> traceCrestLine(const vector<CrestPoint>& crestPoints, const vector<CrestEdge>& crestEdges, int startingPointID, int componentID);
+
+vector<CrestPoint> read_file();
+vector<CrestPoint> read();
 
 // variables globales pour OpenGL
 bool mouseLeftDown;
@@ -92,7 +102,7 @@ Vector_3 red = {1, 0, 0};
 Vector_3 blue = {0, 0, 1};
 Vector_3 green = {0, 1, 0};
 
-
+vector<CrestEdge> crestEdges; 
 
 void initOpenGl() 
 { 
@@ -125,6 +135,22 @@ void initOpenGl()
 
 vector<Vector_3> CalculateSplineSegmentCoefficients(const Vector_3& P0, const Vector_3& P1,
                                         double delta_k, const Vector_3& tangent_o, const Vector_3& tangent_i) {
+    
+    vector<Vector_3> coeffs;
+
+    // if (calculate_norme(tangent_o) == 0.0) {
+    //     cerr << "Error: Outgoing tangent vector (tangent_o) should not be a zero vector." << endl;
+    //     return coeffs;  // Retourner un vecteur vide en cas d'erreur
+    // }
+
+    // // Vérification de la non-nullité de la vector tangent_i
+    // if (calculate_norme(tangent_i) == 0.0) {
+    //     cerr << "Error: Incoming tangent vector (tangent_i) should not be a zero vector." << endl;
+    //     return coeffs;  // Retourner un vecteur vide en cas d'erreur
+    // }
+
+    
+    // cout << "CalculateSplineSegmentCoefficients ..." << endl;
     // Coefficient A is equal to the control point Pk
     Vector_3 A = P1;
 
@@ -140,11 +166,11 @@ vector<Vector_3> CalculateSplineSegmentCoefficients(const Vector_3& P0, const Ve
     // and the current control point Pk, plus the product of the time difference Δk and the sum
     // of the outgoing tangent Tk^o and the incoming tangent Tk+1^i
     Vector_3 D = -2 * (P1 - P0) + delta_k * (tangent_o + tangent_i);
-    vector<Vector_3> coeffs;
     coeffs.push_back(A);
     coeffs.push_back(B);
     coeffs.push_back(C);
     coeffs.push_back(D);
+    // cout << "CalculateSplineSegmentCoefficients done" << endl;
 
     return coeffs;
 
@@ -237,30 +263,51 @@ Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double con
         Vector_3 Pi_plus_1 = P[i + 1].point;
 
         // Calculer les tangentes Ti et To
-        Vector_3 Ti = calculate_Ti(Pi_moins_1, Pi, Pi_plus_1, tension, bias, continuité);
-        Vector_3 To = calculate_To(Pi, Pi_plus_1,P[i + 2].point, tension, bias, continuité);
-
+        P[i].Ti = calculate_Ti(Pi_moins_1, Pi, Pi_plus_1, tension, bias, continuité);
+        P[i].To = calculate_To(Pi, Pi_plus_1,P[i + 2].point, tension, bias, continuité);
+    }
         // Interpoler la courbe entre P_i et P_{i+1}
-        // for (double t = 0.0; t <= 1.0; t += 0.1) {
-        //     CrestPoint H;
-        //     H.point = (2 * t * t * t - 3 * t * t + 1) * Pi+
 
-        //                 (t * t * t - 2 * t * t + t) * Ti +
+/*
+        for (double t = 0.0; t <= 1.0; t += 0.1) {
+            CrestPoint H;
+            H.point = (2 * t * t * t - 3 * t * t + 1) * Pi+
 
-        //                 (-2 * t * t * t + 3 * t * t) * Pi_plus_1 +
+                        (t * t * t - 2 * t * t + t) * Ti +
 
-        //                 (t * t * t - t * t) * To;
-        //     // cout << "Interpolated Point: " << H.point << endl;
-        //     courbe.points.push_back(H);
-        // }
+                        (-2 * t * t * t + 3 * t * t) * Pi_plus_1 +
 
-        auto sizec = courbe.points.size();
-        for (int i = 1; i < sizec - 2; i++) {
+                        (t * t * t - t * t) * To;
+            // cout << "Interpolated Point: " << H.point << endl;
+            courbe.points.push_back(H);
+        }
+*/
+    for (size_t i = 1; i < P.size() - 2; ++i) {
+        // Points P_{i-1}, P_i, P_{i+1}
+        Vector_3 Pi_moins_1 = P[i - 1].point;
+        Vector_3 Pi = P[i].point;
+        Vector_3 Pi_plus_1 = P[i + 1].point;
+
+        auto sizec = P.size();
+        // for (double sk = 1.0; sk <= P.size(); sk += 1.0) {
         // Coefficients pour le segment actuel
-            double delta_k = 1.0;  // Vous devez définir correctement le delta_k selon votre logique
-            
-            vector<Vector_3> coeffs = CalculateSplineSegmentCoefficients(P[i].point,P[i+1].point,
-                                                        delta_k, P[i+1].Ti, P[i+1].To);
+            // double sk = static_cast<double>(j);
+            // cout << "here : " << sk << endl;
+
+            double delta_k = 1.0;  
+            double sk = i,
+                   sk_plus_1 = i+1;
+
+            // cout << "\tcourbe.points[i].point " << Pi << " courbe.points[i + 1].point " << Pi_plus_1 << endl;
+
+
+            vector<Vector_3> coeffs = CalculateSplineSegmentCoefficients(
+                Pi,
+                Pi_plus_1,
+                delta_k, 
+                P[i+1].Ti,
+                P[i].To
+            );
 
             // courbe.points.at(i).Ti = B;
             // courbe.points.at(i).To = D;
@@ -269,45 +316,36 @@ Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double con
                      C = coeffs.at(2),
                      D = coeffs.at(3);
 
-            Vector_3 sk = ( P[i-1].point + 
-                            P[i].point +
-                            P[i+1].point) / 3.0;
+            // cout << "\tA " << A << " B " << B << " C " << C << " D " << D << endl;
 
-            for (double s = 0.0; s <= 1.0; s += 0.1) { 
-                double t_x = (s - sk.x()) / delta_k;
-                double t_y = (s - sk.y()) / delta_k;
-                double t_z = (s - sk.z()) / delta_k;
+            for (double s = sk; s <= sk_plus_1; s += 0.1) { 
+                double t = (s - sk) / delta_k;
+                double t2 = t * t;
+                double t3 = t2 * t;
 
-                double t2_x = t_x * t_x;
-                double t2_y = t_y * t_y;
-                double t2_z = t_z * t_z;
-
-                double t3_x = t2_x * t_x;
-                double t3_y = t2_y * t_y;
-                double t3_z = t2_z * t_z;
-
-                
-                auto x  = A.x() + t_x * B.x() + t2_x * C.x() + t3_x * D.x();
-                auto y = A.y() + t_y * B.y() + t2_y * C.y() + t3_y * D.y();
-                auto z = A.z() + t_z * B.z() + t2_z * C.z() + t3_z * D.z();
-                Vector_3 Xk{x,y,z};
+                auto x = A.x() + t * B.x() + t2 * C.x() + t3 * D.x();
+                auto y = A.y() + t * B.y() + t2 * C.y() + t3 * D.y();
+                auto z = A.z() + t * B.z() + t2 * C.z() + t3 * D.z();
+                Vector_3 Xk{x, y, z};
 
                 CrestPoint H;
                 H.point = Xk;
-                if(H.point.x() != 0 ) 
-                    if(H.point.y() != 0 ) 
-                        if(H.point.z() != 0 ) {
-                            cout << "Interpolated Point: " << H.point << endl;
-                            courbe.points.push_back(H);
-
-                        }
+                if (H.point.x() != 0.0 && H.point.y() != 0.0 && H.point.z() != 0.0) {
+                    // cout << "Interpolated Point: " << H.point << endl;
+                    courbe.points.push_back(H);
+                }
+              
 
             }
 
-        }
+        // }
+      
+/*   */   
+
+
+
 
     }
-
     auto sizec = courbe.points.size();
     for(int i=1; i<sizec-2; i++)
     {
@@ -318,6 +356,9 @@ Spline TCB_Spline(vector<CrestPoint> &P, double tension, double bias, double con
         courbe.points.at(i).Ti = Ti;
         courbe.points.at(i).To = To;
     }
+
+
+
 
     return courbe;
 }
@@ -376,6 +417,63 @@ vector<CrestPoint> read() {
     return crestPoints;
 }
 
+vector<CrestPoint> read_file() {
+    ifstream file("ridges.txt");
+        
+    if (!file.is_open()) {
+        cerr << "erreur ouverture fichier" << endl;
+        return {}; // Return an empty vector on error
+    }
+
+    // Read header information
+    int V, E, N;
+    file >> V >> E >> N;
+
+
+    // Read crest points
+    vector<CrestPoint> crestPoints(V);
+    for (int i = 0; i < V; i++) {
+        file >> crestPoints[i].point >> crestPoints[i].componentId;
+
+        // Assign correct ID based on line number:
+        crestPoints[i].id = i; 
+    }
+
+    
+    // Read connected components
+    vector<ComposanteConnectee> composantesConnectee(N);
+    for (int i = 0; i < N; i++) {
+        file >> composantesConnectee[i].ridgeness;
+        file >> composantesConnectee[i].sphericalness;
+        file >> composantesConnectee[i].cyclideness;
+        composantesConnectee[i].id = 0;
+    }
+
+    // Read crest edges
+    // vector<CrestEdge> crestEdges(E);
+    crestEdges.resize(E);
+    for (int i = 0; i < E; i++) {
+        file >> crestEdges[i].point1ID;
+        file >> crestEdges[i].point2ID;
+        file >> crestEdges[i].triangleID;
+    }
+
+
+    file.close();
+
+    // // Handle connecting edges (-1 triangleID)
+    // for (auto& edge : crestEdges) {
+    //     if (edge.triangleID == -1) {
+    //         // This is a connecting edge, adjust point IDs if needed
+    //         // (Logic for adjusting IDs based on component connectivity)
+    //     }
+    // }
+
+    return crestPoints;
+
+
+}
+
 void drawTCBSpline(Spline courbe, double tension, double continuite, double bias, Vector_3 color) {
 
     glBegin(GL_LINE_STRIP);
@@ -387,6 +485,50 @@ void drawTCBSpline(Spline courbe, double tension, double continuite, double bias
     }
 
     glEnd();
+}
+
+vector<pair<int, int>> findEndpoints(const vector<CrestPoint>& crestPoints, const vector<CrestEdge>& crestEdges) {
+    vector<pair<int, int>> endpoints;
+    unordered_map<int, int> neighborCounts; // Map point ID to neighbor count
+
+    for (const CrestEdge& edge : crestEdges) {
+        neighborCounts[edge.point1ID]++;
+        neighborCounts[edge.point2ID]++;
+    }
+
+    for (int i = 0; i < crestPoints.size(); i++) {
+        if (neighborCounts[crestPoints[i].id] == 1) {
+            endpoints.push_back({crestPoints[i].id, crestPoints[i].componentId});
+        }
+    }
+
+    return endpoints;
+}
+
+vector<CrestPoint> traceCrestLine(const vector<CrestPoint>& crestPoints, const vector<CrestEdge>& crestEdges, int startingPointID, int componentID) {
+    vector<CrestPoint> orderedPoints;
+    stack<int> pointStack;
+    unordered_set<int> visitedPoints;
+
+    pointStack.push(startingPointID);
+
+    while (!pointStack.empty()) {
+        int currentPointID = pointStack.top();
+        pointStack.pop();
+
+        orderedPoints.push_back(crestPoints[currentPointID]);
+        visitedPoints.insert(currentPointID);
+
+        for (const CrestEdge& edge : crestEdges) {
+            if (edge.point1ID == currentPointID && visitedPoints.count(edge.point2ID) == 0 && crestPoints[edge.point2ID].componentId == componentID) {
+                pointStack.push(edge.point2ID);
+            } else if (edge.point2ID == currentPointID && visitedPoints.count(edge.point1ID) == 0 && crestPoints[edge.point1ID].componentId == componentID) {
+                pointStack.push(edge.point1ID);
+            }
+        }
+    }
+
+    return orderedPoints;
 }
 
 void afficherTCBSpline()
@@ -411,46 +553,78 @@ void afficherTCBSpline()
     double continuity = 0.5;
     double bias = 0.5;
 
-    vector<CrestPoint> allPoints = read();
+    // vector<CrestPoint> allPoints = read();
+    vector<CrestPoint> allPoints = read_file();
     if (!allPoints.empty()) {
         CrestPoint dernierPoint = allPoints.back();
         int N = dernierPoint.componentId;
-        for(int i=1; i<N+1; i++) {
+
+
+    for(int i=1; i<N+1; i++) {
             vector<CrestPoint> P;
             for(const auto& p:allPoints) {
-                if(p.componentId == 2 && P.size() < 20) { //
+                // if(p.componentId == 2) { // && P.size() < 20
                     P.push_back(p);
+                // }
+            }
+
+            vector<pair<int, int>> endpoints = findEndpoints(P, crestEdges);
+            // int firstEndpointID = endpoints[3].first;
+            // int firstEndpointComponentID = endpoints[3].second;
+
+            int endpointID = -1;  // Initialisez à une valeur qui ne peut pas être un ID valide.
+            int endpointComponentID = -1;
+
+            // Parcourez le vecteur endpoints pour trouver l'endpoint avec componentID=2.
+            for (const auto& endpoint : endpoints) {
+                if (endpoint.second == 2) {
+                    endpointID = endpoint.first;
+                    endpointComponentID = endpoint.second;
+                    break;  // Sortez de la boucle dès que vous avez trouvé l'endpoint recherché.
                 }
             }
 
+            cout << "firstEndpointID " << endpointID << endl;
+            cout << "firstEndpointComponentID "  <<  endpointComponentID << endl;
+
+            vector<CrestPoint> orderedPoints = traceCrestLine(P, crestEdges, endpointID, endpointComponentID);
+            Spline s = TCB_Spline(orderedPoints, tension, bias, continuity);
+
+            cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl << endl << "SPLINE  "  << endl;
+            for(const auto& cp : orderedPoints) {
+                cout << "Point: " << cp.point << endl ;
+            } 
+    /**
+     *  
             Spline s = TCB_Spline(P, tension, bias, continuity);
+    */
             // drawTCBSpline(s, tension, continuity, bias);
             // cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << endl << endl << "SPLINE  "  << endl;
             // for(const auto& cp : s.points) {
             //     cout << "Point: " << cp.point << endl << " Ti = " << cp.Ti << " To = " << cp.To << endl;
             // } 
             auto numPoints = s.points.size();
-            drawTCBSpline(s, tension, continuity, bias, blue);
+            // drawTCBSpline(s, tension, continuity, bias, blue);
 
-            // vector<Spline> splines = split_splines(s.points, numPoints / 2);
+            vector<Spline> splines = split_splines(s.points, numPoints / 2);
 
             // auto numPoints = P.size();
             // vector<Spline> splines = split_splines(P, numPoints / 2);
 
-            // Spline s1 = splines[0];
-            // Spline s2 = splines[1];
-            // auto size1 = s1.points.size();
-            // auto size2 = s2.points.size();
+            Spline s1 = splines[0];
+            Spline s2 = splines[1];
+            auto size1 = s1.points.size();
+            auto size2 = s2.points.size();
 
             // for(const auto& cp : s1.points) {
             //     cout << "Point: " << cp.point << endl;
             // } 
             // // cout << "size1 = " << size1 << " and P[size-1] " << s1.points.at(size1-1).point << endl;
-            // s1 = TCB_Spline(s1.points, tension, bias, continuity);
-            // s2 = TCB_Spline(s2.points, tension, bias, continuity);
+            s1 = TCB_Spline(s1.points, tension, bias, continuity);
+            s2 = TCB_Spline(s2.points, tension, bias, continuity);
 
-            // drawTCBSpline(s1, tension, continuity, bias, red);
-            // drawTCBSpline(s2, tension, continuity, bias, blue);
+            drawTCBSpline(s1, tension, continuity, bias, red);
+            drawTCBSpline(s2, tension, continuity, bias, blue);
 
             // cout << endl << "SPLINE 1 " << endl << "numPoints = " << s1.points.size() << endl;
             
@@ -463,8 +637,9 @@ void afficherTCBSpline()
             //     cout << "Point: "  << cp.point << endl << "Ti = " << cp.Ti << " To = " << cp.To << endl;
             // } 
 
-            // similitude(s1, s2);
+            similitude(s1, s2);
         }
+
 
     } else {
         std::cerr << "Le vecteur allPoints est vide." << std::endl;
